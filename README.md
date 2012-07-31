@@ -1,4 +1,4 @@
 Curves
 ======
 
-Python software for analyzing AFM force curve data.
+Python software for analyzing atomic force microscopy (AFM) force curve data.
