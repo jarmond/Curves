@@ -1,0 +1,333 @@
+#!/usr/bin/python
+# Curves force analysis software
+# JWA (c)2009
+
+# Curve convert
+from curves import nanoscope
+from curves import analyse
+import numpy as np
+
+cconvert_version = "0.2"
+
+def cconvert(infile,outobj,options):
+    if options.verbose:
+        print "Reading file",infile
+    try:
+      raw_params = nanoscope.read_params(infile)
+      metadata = nanoscope.read_curve_info(raw_params)
+      (ZA,A,R) = nanoscope.read_curve_data(infile,metadata)
+      if ZA[-1]<ZA[0]:
+          ZA=ZA[::-1]
+          A=A[::-1]
+          R=R[::-1]
+      ZR=ZA.copy()
+    except IOError:
+        if options.verbose:
+            print "Failed to read", infile
+        return
+    if options.verbose:
+        print "File type: ",metadata['Software'],metadata['Version']
+
+    # Scale and correct data
+    if not options.raw:
+        # Correct for Z drift
+        #if not options.nodrift:
+            # Take approach as authoritative. Find difference in Z at fully extended
+            # point subtract off from retract Z.
+        #    if R[0]<A[0]:
+        #        iR=0
+        #        iA=analyse.find_first_less(A,R[iR])
+        #    else:
+        #        iA=0
+        #        iR=analyse.find_first_less(R,A[iA])
+        #    if iA>=0 and iR>=0:
+        #        ZR-=ZA[iA]-ZR[iR]
+        #        print "# Drift correction (Z):",ZA[iA]-ZR[iR]
+        #    else:
+        #        print "Unable to correct for drift :("
+
+
+        # Zero Z axis at contact point
+        #lin_i, lin_fit = analyse.fit_slope(ZA[0:len(A)],A,direction=1)
+        #contactline = lin_fit(ZA)
+        #for i in xrange(0,len(A)):
+        #    if contactline[i] < baseline[i]:
+        #        break
+
+        # Find approach contact point
+        cpA=analyse.find_contact_point(ZA,A)
+        #print cpA
+        ZA-=cpA[0]
+        if not options.nodrift:
+            # Find retract contact point
+            cpR=analyse.find_contact_point(ZR,R)
+            #print cpR
+            ZR-=cpR[0]
+        else:
+            ZR-=ZA[i]
+
+        # Subtract baseline
+        if not options.nobase:
+            base_i,base_fit = analyse.fit_line(ZA[0:len(A)],A,direction=0,model='offset') 
+            baseline = base_fit(ZA)
+            A -= baseline[0:len(A)] # Check if this lines up right..
+            R -= baseline[0:len(R)]
+
+        # Choose defl. sens. to use
+        if options.defl is not None:
+            # From command line
+            deflsens = options.defl
+        elif options.calcdefl is None:
+            # From data file
+            deflsens = metadata['DeflSens']
+        elif options.calcdefl.upper()=='A':
+            # Calculate from approach curve
+            lin_i, lin_fit = analyse.fit_slope(ZA,A,direction=1)
+            deflsens = -1.0/lin_fit.beta[0]
+        elif options.calcdefl.upper()=='R':
+            # Calculate from retract curve
+            lin_i, lin_fit = analyse.fit_slope(ZR,R,direction=1)
+            deflsens = -1.0/lin_fit.beta[0]
+        else:
+            print "Error: Unrecognised defl. sens. calculate option."
+            return
+
+        # Choose spring const to use
+        if options.spring is not None:
+            # From command line
+            spring = options.spring
+        else:
+            # From data file
+            spring = metadata['SpringConst']
+        if options.verbose:
+            print "Using defl. sens. %.3f nm/V and spring const %.3f N/m" % (deflsens,spring)
+
+
+
+        # Decide x-axis correction
+        if options.separation:
+            minLen=min(len(A),len(ZA))
+            ZA[0:minLen]+=deflsens*A[0:minLen]
+            minLen=min(len(R),len(ZR))
+            ZR[0:minLen]+=deflsens*R[0:minLen]
+            # Trim data to allow interpolation from A
+            #if ZR[0]<ZA[0]:
+            #    minZR=np.argmin(np.abs(ZR-ZA[0]))+1
+            #else:
+            #    minZR=0
+            #if minZR<ZR.size:
+            #    assert ZR[minZR]>ZA[0]
+            #    ZA=ZA[0:minLen]
+            #    A=A[0:minLen]
+            #    #print minZR, ZA[0], ZR[0]
+            #    # Interpolate A at ZR points
+             #   ZR=ZR[minZR:minLen]+np.interp(ZR[minZR:minLen],ZA,deflsens*A)
+             #   ZA+=deflsens*A
+             #   R=R[minZR:minLen]
+            ##lse:
+            #    print 'Unable to correct for separation.'
+
+        # Decide y-axis scaling
+        if options.deflscale:
+            A *= deflsens
+            R *= deflsens
+        else:
+            A *= deflsens * spring
+            R *= deflsens * spring
+
+    # Do text convert
+    if options.text:
+        if options.verbose:
+            print "Writing text", options.out if options.out != None else ""
+        write_text(outobj,metadata,(ZA,A,ZR,R),options)
+
+    # Make graph
+    if options.png or options.pdf or options.eps:
+        import matplotlib.pyplot as plt
+        if options.verbose:
+            print "Drawing graph"
+        plt.clf()
+        plt.plot(ZA[0:len(A)],A)
+        plt.plot(ZR[0:len(R)],R)
+        if options.separation:
+            plt.xlabel("Separation, nm")
+        else:
+            plt.xlabel("Extension, nm")
+        if options.raw:
+            plt.ylabel("Volts, V")
+        elif options.deflscale:
+            plt.ylabel("Deflection, nm")
+        else:
+            plt.ylabel("Force, nN")
+
+        if options.png:
+            plt.savefig(outobj,format="png")
+        elif options.pdf:
+            plt.savefig(outobj,format="pdf")
+        elif options.eps:
+            plt.savefig(outobj,format="eps")
+        plt.close()
+
+
+def write_text(outfile,metadata,(ZA,A,ZR,R),options):
+    # Write parameters
+    outfile.write('# Exported by cconvert '+ cconvert_version + '\n')
+    for k,v in metadata.iteritems():
+        unit=nanoscope.ns_units[k]
+        outfile.write('# {0} : {1} {2}\n'.format(k,str(v),unit))
+    # TODO Report options used
+    outfile.write('# Baseline subtracted: {0}\n'.format(not options.nobase))
+    outfile.write('# Separation corrected: {0}\n'.format(options.separation))
+    if options.defl!=None:
+        deflsensfrom='User'
+    elif options.calcdefl=='A':
+        deflsensfrom='Approach'
+    elif options.calcdefl=='R':
+        deflsensfrom='Retract'
+    else:
+        deflsensfrom='File'
+    outfile.write('# Defl. sens. from: {0}\n'.format(deflsensfrom))
+    outfile.write('# *** Data begins\n')
+    if options.raw:
+        unit = "volts"
+    elif options.deflscale:
+        unit = "nm"
+    else:
+        unit = "nanonewtons"
+    outfile.write('# *** Z in nm and deflection in '+unit+'\n')
+    outfile.write('# *** Z\tApproach\tZ\tRetract\n')
+
+    # Extend short data sets
+    maxLen=max(len(A),len(R),len(ZR),len(ZA))
+    if len(A) < maxLen:
+        pad=np.empty(maxLen-len(A))
+        pad.fill(np.nan)
+        A=np.append(A,pad)
+    if len(ZA) < maxLen:
+        pad=np.empty(maxLen-len(ZA))
+        pad.fill(np.nan)
+        ZA=np.append(ZA,pad)
+    if len(R) < maxLen:
+        pad=np.empty(maxLen-len(R))
+        pad.fill(np.nan)
+        R=np.append(R,pad)
+    if len(ZR) < maxLen:
+        pad=np.empty(maxLen-len(ZR))
+        pad.fill(np.nan)
+        ZR=np.append(ZR,pad)
+
+    # Write data
+    for i in xrange(0,maxLen):
+        outfile.write('{0:6.6} {1:6.6} {2:6.6} {3:6.6}\n'.format(ZA[i],A[i],ZR[i],R[i]))
+
+
+def config_option_parser():
+    # Configure option parser
+    parser = OptionParser(usage="%prog [options] file1 file2 ...",version="%prog "+cconvert_version)
+    parser.add_option("-s", "--separation", action="store_true", help="correct for tip-surface separation", default=False)
+    parser.add_option("-d", "--defl", type="float", help="override file defl. sens. with SENS", metavar="SENS")
+    parser.add_option("-c", "--calcdefl", type="string", help="[A or R] override file defl. sens. with calculated defl. sens. from approach (A) or retract (R)")
+    parser.add_option("-k", "--spring", type="float", help="override file spring constant with K",metavar="K")
+    parser.add_option("--defl-only", dest="deflscale", default=False, action="store_true", help="do not correct for spring constant, only defl. sens.")
+    parser.add_option("--raw", default=False, action="store_true", help="write raw data, do not correct units")
+    parser.add_option("--nobase", action="store_true", help="do not subtract baseline",default=False)
+    parser.add_option("--nodrift", action="store_true", default=False, help="do not correct for drift")
+    parser.add_option("-t", "--text", action="store_true", help="convert to text")
+    parser.add_option("-p", "--png", action="store_true", help="produce PNG graph")
+    parser.add_option("-P", "--pdf", action="store_true", help="produce PDF graph")
+    parser.add_option("-E", "--eps", action="store_true", help="produce EPS graph")
+    parser.add_option("-D", "--dir", dest="outdir", help="output conversions to DIR", metavar="DIR")
+    parser.add_option("-o", dest="out", help="output file")
+    parser.add_option("-q", "--quiet", dest="verbose", default=True, action="store_false", help="reduce verbosity")
+    return parser
+
+def chooseExtension(options):
+    if options.pdf:
+        ext = '.pdf'
+    elif options.eps:
+        ext = '.eps'
+    elif options.png:
+        ext = '.png'
+    elif options.text:
+        ext = '.txt'
+    else:
+        ext = ''
+    return ext
+
+# Run
+if __name__ == "__main__":
+    import sys
+    import os.path
+    from optparse import OptionParser
+
+    # Read command line options
+    parser = config_option_parser()
+    (options,args) = parser.parse_args()
+
+    if (options.pdf or options.eps or options.png) and options.text:
+        print >> sys.stderr, "Cannot produce text and graph at same time."
+        sys.exit(1)
+
+    # Default to text target
+    if not (options.pdf or options.eps or options.png):
+        options.text = True
+
+    # Get input 
+    if len(args)<1 or args[0] == "-":
+        infile=sys.stdin
+    elif os.path.isfile(args[0]):
+        infile = args[0]
+        if not nanoscope.is_nanoscope_file(infile):
+          print >> sys.stderr, "File %s is not a Nanoscope file" % infile
+          sys.exit(2)
+    else:
+        print >> sys.stderr, "File %s doesn't exist" % args[0]
+        sys.exit(1)
+
+    # Get output
+    if len(args)>1 and options.out != None:
+        print >> sys.stderr, "Can't give out filename to multiple files"
+        sys.exit(4)
+
+    # Multiple files specified
+    if len(args)>1:
+        if options.outdir == None:
+            options.outdir = '.'
+        for arg in args:
+            ext = chooseExtension(options)
+            outfile = os.path.join(options.outdir, arg + ext)
+            outobj = open(outfile,'w')
+            cconvert(arg,outobj,options)
+            outobj.close()
+
+        # EXIT
+            
+    # Single file specified
+    else:
+        try:
+          arg = args[0]
+        except IndexError:
+          print >> sys.stderr, "Must specify at least one file"
+          sys.exit(5)
+        # Directory specified, filename unspecified
+        if options.out == None and options.outdir != None:
+            outfile = os.path.join(options.outdir, arg + chooseExtension(options))
+            outobj = open(outfile,'w')
+        # Directory unspecified, filename specified
+        elif options.out != None and options.outdir == None:
+            outfile = os.path.join('.', options.out)
+            outobj = open(outfile,'w')
+        # Directory unspecified, filename unspecified -> stdout
+        else: 
+            if options.pdf or options.eps or options.png:
+                print >> sys.stderr, "Can't save image to stdout"
+                sys.exit(3)
+            else:
+                outobj = sys.stdout
+                options.verbose = False
+
+        cconvert(arg,outobj,options)
+        outobj.close()
+        
+        #EXIT
+

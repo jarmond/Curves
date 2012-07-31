@@ -1,0 +1,61 @@
+#!/usr/bin/python
+# Curves force analysis software
+# JWA (c)2009
+
+# Convert extension curves to separation curves, with filtering
+import numpy as np
+from curves import analyse
+import os.path
+
+separation_version="0.1"
+
+def separation(files,options):
+    """For given list of files, calculate tip-separation and output to given
+    target directory. If required, do Savitzky-Golay filtering."""
+
+    # Read files and find peak and retracted deflection
+    for f in files:
+        if options.verbose:
+            print "Reading file: {0}".format(f)
+        data = np.loadtxt(f)
+        x = data[:,0]
+        y1 = data[:,1]
+        y2 = data[:,2]
+
+        # Do Savitzky-Golay filtering, if required
+        if options.smooth:
+            if options.verbose:
+                print "Savitzky-Golay filtering..."
+            analyse.
+
+        # Write file
+        new_f=os.path.join(options.outdir,options.os.path.basename(f))
+        np.savetxt(new_f,(xs,y1s,y2s))
+
+def config_option_parser():
+    # Configure option parser
+    parser = OptionParser(usage="%prog [options] file1 file2 ...",version="%prog "+align_version)
+    parser.add_option("-k", type="float", help="Spring constant. If not specified data is assumed to be deflection (nm).") 
+    parser.add_option("-s", dest="smooth", action="store_true", default=False, help="Do Savitzky-Golay filtering.")
+    parser.add_option("-w", "--window", type="int", default=51, help="SG filtering window SIZE (51).",metavar="SIZE")
+    parser.add_option("-D", dest="outdir", help="Output directory.")
+    parser.add_option("-v", "--verbose", action="store_true", default=False)
+    return parser
+
+# Run
+if __name__ == "__main__":
+    import sys
+    from optparse import OptionParser
+
+    # Read command line options
+    parser = config_option_parser()
+    (options,args) = parser.parse_args()
+
+    # Validate options
+
+    # Get input 
+    if len(args)<1:
+        print >> sys.stderr, "Must specify files to process"
+        sys.exit(-1)
+
+    separation(args,options)

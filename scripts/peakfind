@@ -1,0 +1,104 @@
+#!/usr/bin/python
+# Curves force analysis software
+# JWA (c)2009
+
+# Find peaks
+from numpy import *
+from curves import analyse
+
+peakfind_version="0.3"
+
+def peakfind(x,y,options):
+    # User supplies pre-smoothed curve if desired
+    peaks = analyse.find_peaks(x,y,width_thresh=options.width,width_height=options.widthheight/100,amp_thresh=options.height,dy_thresh=options.deriv,invert=options.invert,verbose=options.verbose)
+    header(options)
+    print_peaks(peaks)
+
+def header(o):
+    print "# Finding peaks with width <%.1f nm at %.0f%% height, derivative threshold %.3f, amplitude %.3f" % (o.width,o.widthheight,o.deriv,o.height)
+    print "# Direction: ",
+    if o.retract:
+        print "Retract"
+    else:
+        print "Approach"
+    if o.invert:
+        print "# Deflection values inverted"
+
+def print_peaks(p):
+    i = 1
+    print "# Peak\tZ\tAmp\tWidth\tDerivative\tPkLeft\tPkRight"
+    for pk in p:
+        print "%03d\t%.2f\t%.2f\t%.2f\t%.2f\t%.2f\t%.2f" % (i,pk[0],pk[1],pk[2],pk[6],pk[4],pk[5])
+        i += 1
+
+def config_option_parser():
+    # Configure option parser
+    parser = OptionParser(usage="%prog [options] file1 file2 ...",version="%prog "+peakfind_version)
+    parser.add_option("-b", "--bracket", metavar="A,B", help="bracket finding to A,B nm Z-range")
+    parser.add_option("-i", "--invert", action="store_true", default=False, help="invert curve")
+    parser.add_option("--window", type="int", default=5, help="smoothing window SIZE (for derivative) (5)",metavar="SIZE")
+    parser.add_option("-r", "--retract", action="store_true", default=True)
+    parser.add_option("-a", "--approach", action="store_false", dest="retract")
+    parser.add_option("-w", "--width", type="float", default=50, help="width at % height (50)")
+    parser.add_option("--widthheight", type="float", default=90, help="% height to test width (90)")
+    parser.add_option("-H", "--height", type="float", default=-1, help="height threshold (off by default)")
+    parser.add_option("-d", "--deriv", type="float", default=0.1,help="derivative threshold (0.1)")
+    parser.add_option("-o", dest="out", help="output filename")
+    parser.add_option("-v", "--verbose", action="store_true", default=False)
+    return parser
+
+# Run
+if __name__ == "__main__":
+    import sys
+    import os.path
+    from optparse import OptionParser
+
+    # Read command line options
+    parser = config_option_parser()
+    (options,args) = parser.parse_args()
+
+    # Validate options
+
+    # Get input 
+    if len(args)<1 or args[0] == "-":
+        infile=sys.stdin
+    elif os.path.isfile(args[0]):
+        infile = args[0]
+    else:
+        print >> sys.stderr, "File %s doesn't exist" % args[0]
+        sys.exit(-1)
+
+    # Get output
+    if options.out == None:
+        outfile = sys.stdout
+    else:
+        outfile = options.out
+
+    #data = loadtxt(infile)
+    data = genfromtxt(infile,missing_values={1:'nan',2:'.0nan'})
+    x = data[:,0]
+    if options.retract:
+        y = data[:,2]
+    else:
+        y = data[:,1]
+
+    if not options.bracket==None:
+        # bracket data
+        br = options.bracket.split(',')
+        if len(br)!=2 or br[0]>br[1]:
+            print >> sys.stderr, "Require two Z values specifed as a,b such that a<b"
+            sys.exit(-1)
+        if br[0] < min(x) or br[1] > max(x):
+            print >> sys.stderr, "Bracket does not lie inside Z-range"
+            sys.exit(-1)
+        a = argmin(abs(x-a))
+        b = argmin(abs(x-b))
+        if b-a < 5:
+            print >> sys.stderr, "Bracket too small."
+            sys.exit(-1)
+        x=x[a:b]
+        y=y[a:b]
+
+
+    sys.stdout = outfile
+    peakfind(x,y,options)

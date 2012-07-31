@@ -1,0 +1,108 @@
+#!/usr/bin/python
+# Curves force analysis software
+# JWA (c)2009
+
+# Align curves
+import numpy as np
+from curves import analyse
+import os.path
+
+align_version="0.1"
+
+def align(files,options,bracket):
+    """For given list of files, find 1st major peak and fully retracted deflection.
+    Use these coordinates to align the full set of files and output aligned versions
+    to given target directory."""
+
+    # Read files and find peak and retracted deflection
+    alignments=[]
+    for f in files:
+        data = np.loadtxt(f)
+        x = data[:,0]
+        if options.retract:
+            y = data[:,2]
+        else:
+            y = data[:,1]
+
+        if bracket!=None:
+            if bracket[0] < min(x) or bracket[1] > max(x):
+                print "Bracket does not lie inside Z-range - skipping {0}".format(f)
+                sys.exit(-1)
+            a = np.argmin(abs(x-bracket[0]))
+            b = np.argmin(abs(x-bracket[1]))
+            if b-a < 5:
+                print "Bracket too small - skipping {0}".format(f)
+                sys.exit(-1)
+            x=x[a:b]
+            y=y[a:b]
+
+        # Find peaks
+        peaks = analyse.find_peaks(x,y,width_thresh=options.width,width_height=options.widthheight/100,amp_thresh=options.height,dy_thresh=options.deriv,invert=options.invert,verbose=options.verbose)
+        if len(peaks)==0:
+            print "No peaks found - skipping {0}".format(f)
+        else:
+            # Fit line to retraction
+            line_i,line_fit=analyse.fit_line(x,y,direction=0,defl_thresh=None)
+
+            # Assume first peak
+            alignments.append((f,peaks[0][0],line_fit(x[-1])))
+    
+    # Read each file again, align such that 1st major peak is at z=0 and
+    # retracted deflection is zero
+    for a in alignments:
+        data = np.loadtxt(a[0])
+        x=data[:,0]
+        y1=data[:,1]
+        y2=data[:,2]
+        # Effect alignment
+        x=x-a[1]
+        y1=y1-a[2]
+        y2=y2-a[2]
+        # Write file
+        new_f=os.path.join(options.outdir,options.os.path.basename(a[0]))
+        np.savetxt(new_f,(x,y1,y2))
+
+def config_option_parser():
+    # Configure option parser
+    parser = OptionParser(usage="%prog [options] file1 file2 ...",version="%prog "+align_version)
+    parser.add_option("-b", "--bracket", metavar="A,B", help="bracket peak finding to A,B nm Z-range")
+    parser.add_option("-i", "--invert", action="store_true", default=False, help="invert curve")
+    parser.add_option("--window", type="int", default=5, help="smoothing window SIZE (for derivative) (5)",metavar="SIZE")
+    parser.add_option("-r", "--retract", action="store_true", default=True, help="use retract curve (default)")
+    parser.add_option("-a", "--approach", action="store_false", dest="retract", help="use approach curve")
+    parser.add_option("-w", "--width", type="float", default=50, help="width at % height (50)")
+    parser.add_option("--widthheight", type="float", default=70, help="% height to test width (70)")
+    parser.add_option("-H", "--height", type="float", default=-1, help="height threshold (off by default)")
+    parser.add_option("-d", "--deriv", type="float", default=0.1,help="derivative threshold (0.1)")
+    parser.add_option("-x", action="store_true", help="align extension only")
+    parser.add_option("-y", action="store_true", help="align deflection only")
+    parser.add_option("-L", dest="extlength", type="float", default=5, help="% distance from fully retracted to begin line fit")
+    parser.add_option("-D", dest="outdir", help="output directory")
+    parser.add_option("-v", "--verbose", action="store_true", default=False)
+    return parser
+
+# Run
+if __name__ == "__main__":
+    import sys
+    from optparse import OptionParser
+
+    # Read command line options
+    parser = config_option_parser()
+    (options,args) = parser.parse_args()
+
+    # Validate options
+
+    # Get input 
+    if len(args)<1:
+        print >> sys.stderr, "Must specify files to align"
+        sys.exit(-1)
+
+    if not options.bracket==None:
+        # bracket data
+        br = options.bracket.split(',')
+        if len(br)!=2 or br[0]>br[1]:
+            print >> sys.stderr, "Require two Z values specifed as a,b such that a<b"
+            sys.exit(-1)
+
+
+    align(args,options,options.bracket)

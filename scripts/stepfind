@@ -1,0 +1,178 @@
+#!/usr/bin/python
+# Curves force analysis software
+# JWA (c)2009
+
+# Find steps by continuous wavelet transform method
+import numpy as np
+from scipy import interpolate
+from curves import analyse
+
+stepfind_version='0.3'
+image_size=256
+
+def stepfind_wavelet(x,y,options):
+    if not options.full:
+        cp=analyse.find_contact_point(x,y)
+        cpind=np.argmin(np.abs(x-cp[0]))
+        if x[-1]>x[0]:
+            x=x[cpind:-1]
+            y=y[cpind:-1]
+        else:
+            x=x[0:cpind]
+            y=y[0:cpind]
+
+    steps,scales,cwt,ridges,lMax = analyse.find_peaks_wavelet(x,y,window=options.window,
+                                                              snr_thresh=options.snr,
+                                                              peak_thresh=options.peak,
+                                                              order=1,
+							      scaleCutoff=(2.0,20.0),
+							      verbose=options.verbose)
+    steps.sort(key=lambda p: p[1]) # sort by x
+    header(options)
+    print_steps(x,steps)
+    if options.display or options.pdf!=None or options.png!=None:
+        import matplotlib.pyplot as plt
+        from scipy import interpolate
+        #scales*=x[1]-x[0]
+
+        plt.subplot(2,1,1)
+        plt.plot(x,y)
+        if len(steps)>0:
+            stepZip=zip(*steps)
+            stepX=list(stepZip[1])
+            stepY=list(stepZip[3 if options.max else 2])
+            plt.plot(stepX,stepY,'gx',markersize=16)
+        plt.xlim(np.min(x),np.max(x))
+        plt.ylabel('Force (nN)')
+
+        plt.subplot(2,1,2)
+        #plt.contourf(x,scales,cwt,32)
+        # Use splines to make image
+        acwt=np.absolute(cwt)
+        imcwt=np.zeros((image_size,acwt.shape[1]))
+        imscales=np.linspace(np.min(scales),np.max(scales),image_size)
+        for i in range(0,acwt.shape[1]): # for each x interpolate over scales
+            spl=interpolate.splrep(scales,acwt[:,i])
+            imcwt[::-1,i]=interpolate.splev(imscales,spl)
+
+        plt.imshow(imcwt,aspect='auto',extent=(np.min(x),np.max(x),np.min(scales),np.max(scales)),vmax=0.85*np.max(acwt))
+
+        for r in ridges:
+            rInd=zip(*r)
+            rxPoints=x[list(rInd[1])]
+            ryPoints=scales[list(rInd[0])]
+            plt.plot(rxPoints,ryPoints,'r-o')
+        if options.verbose:
+            for i in range(0,scales.size):
+                plt.plot(x[lMax[i]],[scales[i]]*lMax[i].size,'gx')
+        plt.ylabel('Scale')
+        plt.xlabel('Z (nm)')
+        plt.xlim(np.min(x),np.max(x))
+        plt.ylim(np.min(scales),np.max(scales))
+        
+        if options.pdf!=None:
+            plt.savefig(options.pdf,format="pdf")
+            plt.close()
+        elif options.png!=None:
+            plt.savefig(options.png,format="png")
+            plt.close()
+        else:
+            plt.show()
+
+
+    if len(steps)==0:
+        print "# *** No steps found ***"
+
+def header(o):
+    print "# Finding steps using CWT"
+    print "# Direction: ",
+    if o.retract:
+        print "Retract"
+    else:
+        print "Approach"
+    if o.invert:
+        print "# Deflection values inverted"
+
+def print_steps(x,p):
+    i = 1
+    print "# Step\tZ\tAmp(mean)\tAmp(max)\tStrength\tSNR\tNoise"
+    for pk in p:
+        print "%03d\t%.2f\t%.2f\t%.2f\t%.2f\t%.2f\t%.2f" % (i,pk[1],pk[2],pk[3],pk[4],pk[5],pk[4]/pk[5])
+        i += 1
+
+def config_option_parser():
+    # Configure option parser
+    parser = OptionParser(usage="%prog [options] file1 file2 ...",version="%prog "+stepfind_version)
+    parser.add_option("-b", "--bracket", metavar="A,B", help="bracket finding to A,B nm Z-range")
+    parser.add_option("-i", "--invert", action="store_true", default=False, help="invert curve")
+    parser.add_option("-w", "--window", type="int", default=50, help="local maxima window")
+    parser.add_option("-s", "--snr", type="float", default=0.0, help="signal-to-noise ratio threshold (default 0)")
+    parser.add_option("-r", "--retract", action="store_true", default=True)
+    parser.add_option("-a", "--approach", action="store_false", dest="retract")
+    parser.add_option("-o", dest="out", help="output filename")
+    parser.add_option("-v", "--verbose", action="store_true", default=False)
+    parser.add_option("-d", "--display", action="store_true", default=False, help="show plot of CWT")
+    parser.add_option("-f", "--full", action="store_true", default=False, help="Use full curve. Default is to exclude beyond contact point.")
+    parser.add_option("-m", "--max", action="store_true",default=False, help="Display max of peak window as value. Default is to display mean.")
+    parser.add_option("-P", "--pdf", help="output graphs to PDF",metavar="FILE")
+    parser.add_option("-p", "--png", help="output graphs to PNG",metavar="FILE")
+    parser.add_option("-t", "--peak", type="float", default=0.0, help="peak strength threshold (default 0)")
+    return parser
+
+# Run
+if __name__ == "__main__":
+    import sys
+    import os.path
+    from optparse import OptionParser
+
+    # Read command line options
+    parser = config_option_parser()
+    (options,args) = parser.parse_args()
+
+    # Validate options
+
+    # Get input 
+    if len(args)<1 or args[0] == "-":
+        infile=sys.stdin
+    elif os.path.isfile(args[0]):
+        infile = args[0]
+    else:
+        print >> sys.stderr, "File %s doesn't exist" % args[0]
+        sys.exit(-1)
+
+    # Get output
+    if options.out == None:
+        outfile = sys.stdout
+    else:
+        outfile = options.out
+
+    data = np.genfromtxt(infile,missing_values={1:'nan',2:'.0nan'})
+    if options.retract:
+        x = data[:,2]
+        y = data[:,3]
+    else:
+        x = data[:,0]
+        y = data[:,1]
+    if options.invert:
+        y=-y
+
+    if not options.bracket==None:
+        # bracket data
+        br = map(float,options.bracket.split(','))
+        if len(br)!=2 or br[0]>br[1]:
+            print >> sys.stderr, "Require two Z values specifed as a,b such that a<b"
+            sys.exit(-1)
+        if br[0] < np.min(x) or br[1] > np.max(x):
+            print >> sys.stderr, "Bracket ({0},{1}) does not lie inside Z-range ({2},{3})".format(br[0],br[1],np.min(x),np.max(x))
+            sys.exit(-1)
+        a = np.argmin(np.abs(x-br[0]))
+        b = np.argmin(np.abs(x-br[1]))
+        if b-a < 5:
+            print >> sys.stderr, "Bracket too small."
+            sys.exit(-1)
+        x=x[a:b]
+        y=y[a:b]
+
+
+    sys.stdout = outfile
+    stepfind_wavelet(x,y,options)

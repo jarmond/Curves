@@ -1,0 +1,102 @@
+#!/usr/bin/python
+# Curves force analysis software
+# JWA (c)2009
+
+# Curve processing
+from curves import analyse
+from numpy import *
+
+cprocess_version = "0.1"
+
+def smooth(data,options):
+    sdata = data[:,0] # Independent variable
+    # Smooth each dependent variable
+    for i in range(1,data.shape[1]):
+        s = analyse.smooth(data[:,0],data[:,i],options.window,method=options.s_method)
+        sdata = column_stack((sdata,s))
+    return sdata
+
+
+def derivative(data,options):
+    ddata = data[:,0] # Independent variable
+    h = data[1,0]-data[0,0]
+    # Differentiate each dependent variable
+    for i in range(1,data.shape[1]):
+        d = analyse.derivative(data[:,0],data[:,i],h,N=options.order,method=options.d_method)
+        ddata = column_stack((ddata,d))
+    return ddata
+
+
+def config_option_parser():
+    # Configure option parser
+    parser = OptionParser(usage="%prog [options] file1 file2 ...",version="%prog "+cprocess_version)
+    parser.add_option("-s", "--smooth", dest="op", action="append_const", const="smooth", help="smooth curve")
+    parser.add_option("-d", "--derivative", dest="op", action="append_const", const="deriv", help="first derivative of curve")
+    parser.add_option("-a", "--mean", action="store_const", const="mean", default="mean", dest="s_method", help="mean average window smoothing")
+    parser.add_option("-m", "--median", action="store_const", const="median", dest="s_method", help="median window smoothing")
+    parser.add_option("-l", "--lanczos", action="store_const", const="lanczos", dest="d_method", default="lanczos", help="use Lanczos differentiator")
+    parser.add_option("-c", "--central", action="store_const", const="central", dest="d_method", help="use central differences")
+    parser.add_option("-n", "--order", type="int", default=9, help="differentation order")
+    parser.add_option("-w", "--window", type="int", default=5, help="window SIZE",metavar="SIZE")
+    parser.add_option("-o", dest="out", help="output filename")
+    parser.add_option("-D", "--dir", dest="outdir", help="output conversions to DIR", metavar="DIR")
+    return parser
+
+# Run
+if __name__ == "__main__":
+    import sys
+    import os.path
+    from optparse import OptionParser
+
+    # Read command line options
+    parser = config_option_parser()
+    (options,args) = parser.parse_args()
+
+    if options.op == None:
+        print >> sys.stderr, "Require at least one operation!"
+        sys.exit(-1)
+
+    # \todo check window and order options for validity
+
+    # Get input 
+    if len(args)<1 or args[0] == "-":
+        infile=sys.stdin
+    elif len(args)>1:
+        print >> sys.stderr, "Can only operate on one file at once"
+        sys.exit(-2)
+    elif os.path.isfile(args[0]):
+        infile = args[0]
+    else:
+        print >> sys.stderr, "File %s doesn't exist" % args[0]
+        sys.exit(-1)
+
+    # Get output
+    if options.out == None:
+        outfile = sys.stdout
+    else:
+        if options.outdir == None:
+            options.outdir = '.'
+        outfile = os.path.join(options.outdir, options.out)
+
+    # Load data
+    data = genfromtxt(infile,missing_values={1:'nan',2:'.0nan'})
+    if data.shape[1]<1:
+        print >> sys.stderr, 'No ordinates!'
+        sys.exit(-1)
+
+    # Perform operations sequentially
+    for op in options.op:
+        if op=="smooth":
+            if outfile != sys.stdout:
+                print "Smoothing using windowed %s ..." % options.s_method
+            data = smooth(data,options)
+        elif op=="deriv":
+            if outfile != sys.stdout:
+                print "Differentiating using %s ..." % options.d_method
+            data = derivative(data,options)
+        else:
+            print >> sys.stderr, "Error: unknown operation",op
+
+    # Save file
+    savetxt(outfile,data)
+

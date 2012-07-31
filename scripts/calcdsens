@@ -1,0 +1,56 @@
+#!/usr/bin/python
+# Curves force analysis software
+# JWA (c)2009
+
+# Calculate deflection sensitivity from linear contact region
+from curves import nanoscope
+from curves import analyse
+
+# TODO add options to modify fitting thresholds
+
+calcdsens_version = "0.2"
+
+def calcdsens(files,use_retract):
+    for file in files:
+        # Load file
+        raw_params = nanoscope.read_params(file)
+        metadata = nanoscope.read_curve_info(raw_params)
+        data = nanoscope.read_curve_data(file,metadata)
+
+        # Calculate defl. sens.
+        deflsens = calculate_defl_sens(data[0],data[2 if use_retract else 1])
+    
+        # Display
+        print "File: %s Soft: %s %s InvOLS: %.3f deflsens nm/V" % (file,metadata['Software'],metadata['Version'],deflsens)
+
+def calculate_defl_sens(Z,A):
+    lin_i, lin_fit = analyse.fit_slope(Z,A,direction=1)
+    return -1.0/lin_fit.beta[0]
+
+def config_option_parser():
+    # Configure option parser
+    parser = OptionParser(usage="%prog [options] file1 file2 ...",version="%prog "+calcdsens_version)
+    parser.add_option("-r", "--retract", action="store_true", default=False, help="use retract curve instead of extend")
+    return parser
+
+# Run
+if __name__ == "__main__":
+    import sys
+    import os.path
+    from optparse import OptionParser
+
+    # Read command line options
+    parser = config_option_parser()
+    (options,args) = parser.parse_args()
+
+    # Check file existence
+    files = []
+    for arg in args:
+        if os.path.isfile(arg):
+            files.append(arg)
+        else:
+            print "File %s doesn't exist" % arg
+
+    calcdsens(files,options.retract)
+
+

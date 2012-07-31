@@ -1,0 +1,12 @@
+setup.py
+curves/__init__.py
+curves/analyse.py
+curves/models.py
+curves/nanoscope.py
+curves/stats.py
+curves/util.py
+scripts/calcdsens
+scripts/cconvert
+scripts/cprocess
+scripts/peakfind
+scripts/stepfind

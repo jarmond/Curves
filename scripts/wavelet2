@@ -1,0 +1,59 @@
+#!/usr/bin/python
+
+import sys
+import numpy as np
+import matplotlib.pyplot as plt
+
+def peak_find_wavelet(infile):
+    data = np.genfromtxt(infile,missing_values={1:'nan',2:'.0nan'})
+    #x = data[:,0] 
+    #y = -data[:,2]
+    x = data[3000:,0] # TODO use derivative as cutoff to elimate contact onwards
+    y = -data[3000:,2]
+
+    #dt = x[1]-x[0]
+    dt=0.1
+    dj=0.1
+    cutoff=(1.0,64.0)
+    d,s=mlpy.cwt(y,dt,dj,wf='dog',p=2,extmethod='reflection')
+    cutoff_i=(np.argmin(abs(s-cutoff[0]))+1,np.argmin(abs(s-cutoff[1]))+1)
+    da=np.absolute(d[cutoff_i[0]:cutoff_i[1],:])
+    sa=s[cutoff_i[0]:cutoff_i[1]]
+    ridges=find_ridges(sa,da,5,20)
+    ridgePoints=zip(*[r for r in flatten(ridges)])
+    xridgePoints=[x[i] for i in ridgePoints[1]]
+    yridgePoints=[sa[i] for i in ridgePoints[0]]
+    peaks=find_peaks(sa,da)
+    print peaks
+    peakInd=zip(*peaks)[1]
+
+    plt.subplot(2,1,1)
+    plt.plot(x,y)
+    plt.plot(x[peakInd],y[peakInd],'gx')
+    plt.xlim(min(x),max(x))
+
+    plt.subplot(2,1,2)
+    #plt.imshow(da,aspect='auto',extent=[min(x),max(x),max(sa),min(sa)],cmap=plt.cm.jet)
+    plt.contourf(x,sa,da,32)
+    plt.plot(xridgePoints,yridgePoints,'ro')
+
+    minWindow=5
+    for i in range(0,sa.size):
+        lMax=local_maxima(da[i,:],window=max(2*int(sa[i])+1,minWindow))
+        plt.plot(x[lMax],[sa[i]]*lMax.size,'gx')
+    plt.xlim(min(x),max(x))
+
+    plt.show()
+
+    
+
+
+
+
+def stencil(i,w,n):
+    """ Return the indices of stencil of w values around i."""
+    ind = np.clip(range(i-w,i+w+1),0,n-1)
+    return ind
+
+if __name__=='__main__':
+    peak_find_wavelet(sys.argv[1])

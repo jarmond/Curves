@@ -1,0 +1,99 @@
+#!/usr/bin/python
+# Curves force analysis software
+# JWA (c)2009
+
+# Given location of peak, extract parameters
+import numpy as np
+from curves import analyse
+
+peak_analyse_version="0.1"
+
+
+def analyse_peak(x,y,pki,options):
+    pkx=x[pki]
+    w=options.window
+    if not options.step:
+        if options.maxpeak:
+            pky_base=np.mean(y[analyse.stencil(pki+2*w,w,y.size)])            # guess that baseline is 2 windows right
+            pky=np.mean(y[analyse.stencil(pki,w,y.size)])-pky_base
+        else:
+            # Get baseline for far end
+            pky_base=np.mean(y[-2*w:])
+            pky=np.min(y[analyse.stencil(pki,w,y.size)])-pky_base
+
+        if options.verbose:
+            print "# Peak_X Peak_Y"
+        print "{0:8.3f} {1:8.3f}".format(pkx,pky)
+    else:
+        # move two windows right and find mean
+        pky_left=np.mean(y[analyse.stencil(pki+2*w,w,y.size)])
+        # move two windows left and find mean
+        pky_right=np.mean(y[analyse.stencil(pki-2*w,w,y.size)])
+        # step
+        step=pky_right-pky_left
+        
+        if options.verbose:
+            print "# Step_X Step_DY"
+        print "{0:8.3f} {1:8.3f}".format(pkx,step)
+
+def config_option_parser():
+    # Configure option parser
+    parser = OptionParser(usage="%prog [options] file1 file2 ...",version="%prog "+peak_analyse_version)
+    parser.add_option("-i", "--invert", action="store_true", default=False, help="invert curve")
+    parser.add_option("-w", "--window", type="int", default=50, help="local maxima window")
+    parser.add_option("-r", "--retract", action="store_true", default=True)
+    parser.add_option("-a", "--approach", action="store_false", dest="retract")
+#    parser.add_option("-o", dest="out", help="output filename")
+    parser.add_option("-v", "--verbose", action="store_true", default=False)
+    parser.add_option("-p", "--peak", type="int", help="index of peak to analyse")
+    parser.add_option("-f", "--peakfile", help="peak data file")
+    parser.add_option("-c", "--curvefile", help="curve data file")
+    parser.add_option("-m", "--maxpeak", action="store_true", default=False)
+    parser.add_option("-s", "--step", action="store_true", help="step mode")
+    return parser
+
+
+# Run
+if __name__ == "__main__":
+    import sys
+    import os.path
+    from optparse import OptionParser
+
+    # Read command line options
+    parser = config_option_parser()
+    (options,args) = parser.parse_args()
+
+    if options.peakfile==None:
+        print >> sys.stderr, "Require a peak data file."
+        sys.exit(1)
+
+    if options.peak==None:
+        print >> sys.stderr, "Require a peak location."
+        sys.exit(1)
+
+    if options.curvefile==None:
+        print >> sys.stderr, "Require a curve data file."
+        sys.exit(1)
+
+    # Load peak data file
+    pkdata=np.genfromtxt(options.peakfile)
+    pkx=pkdata[options.peak-1,1]
+    
+    # Load curve data
+    data = np.genfromtxt(options.curvefile,missing_values={1:'nan',2:'.0nan'})
+    if options.retract:
+        x = data[:,2]
+        y = data[:,3]
+    else:
+        x = data[:,0]
+        y = data[:,1]
+    if options.invert:
+        y=-y
+    if pkx<np.min(x) or pkx>np.max(x):
+        print >> sys.stderr, "Peak is not within bounds of curve data range."
+        sys.exit(2)
+
+    # Find index of peak 
+    pki=np.argmin(np.abs(x-pkx))
+
+    analyse_peak(x,y,pki,options)
